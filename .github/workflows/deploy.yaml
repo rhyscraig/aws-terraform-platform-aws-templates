@@ -1,0 +1,47 @@
+name: Deploy avm-platform-infra
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # Required for OIDC
+      contents: read    # Required to fetch repo code
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0 # or whatever you standardize on
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+          aws-region: eu-west-1 # adjust to your region
+
+      - name: Terraform Init
+        run: terraform init \
+          -backend-config="bucket=avm-terraform-state" \
+          -backend-config="dynamodb_table=avm-terraform-locks" \
+          -backend-config="region=eu-west-1"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -input=false
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -input=false -auto-approve
