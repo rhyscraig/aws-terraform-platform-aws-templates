@@ -1,34 +1,114 @@
-name: Deploy avm-platform
+name: Terraform CI/CD
+
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Optional manual trigger
 
 jobs:
-  terraform:
+  validate:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: terraform/control_tower
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
-      - name: Configure AWS credentials (OIDC)
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
           aws-region: eu-west-1
-      - run: terraform init -backend-config="bucket=avm-terraform-state" -backend-config="dynamodb_table=avm-terraform-locks" -backend-config="region=eu-west-1"
-      - run: terraform validate
-      - run: terraform plan -input=false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend-config="bucket=avm-terraform-state" \
+                             -backend-config="dynamodb_table=avm-terraform-locks" \
+                             -backend-config="region=eu-west-1"
+
+      - name: Terraform validate
+        run: terraform validate -json
+
+      - name: TFLint
+        uses: terraform-linters/setup-tflint@v1
+
+      - name: Run TFLint
+        run: tflint --module
+
+      - name: Checkov
+        uses: bridgecrewio/checkov@v2
+        with:
+          directory: .
+
+      - name: Terraform Plan
         if: github.event_name == 'pull_request'
-      - run: terraform apply -input=false -auto-approve
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform plan -input=false -out=tfplan
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend-config="bucket=avm-terraform-state" \
+                             -backend-config="dynamodb_table=avm-terraform-locks" \
+                             -backend-config="region=eu-west-1"
+
+      - name: Terraform validate
+        run: terraform validate -json
+
+      - name: TFLint
+        uses: terraform-linters/setup-tflint@v1
+
+      - name: Run TFLint
+        run: tflint --module
+
+      - name: Checkov
+        uses: bridgecrewio/checkov@v2
+        with:
+          directory: .
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Approval before Apply
+        uses: hmarr/auto-approve-action@v2
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Terraform Apply
+        if: github.event_name == 'workflow_dispatch'
+        run: terraform apply -input=false -auto-approve tfplan
