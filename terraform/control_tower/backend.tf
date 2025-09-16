@@ -1,9 +1,10 @@
 terraform {
   backend "s3" {
-    bucket         = "avm-terraform-state"
+    bucket         = "bt-terraform-remote-state-us-east-1"
     key            = "avm-platform-infra/terraform.tfstate"
-    region         = "eu-west-1"
-    dynamodb_table = "avm-terraform-locks"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-state-lock"
     encrypt        = true
   }
 }
+
