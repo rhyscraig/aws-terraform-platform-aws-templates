@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    {
+      "name": "core-infra",
+      "email": "core-infra@company.com",
+      "organizational_unit": "Infrastructure"
+    }
+  ],
+  "organizational_units": [
+    {
+      "name": "Infrastructure"
+    },
+    {
+      "name": "Development"
+    },
+    {
+      "name": "Production"
+    }
+  ],
+  "regions": ["eu-west-1"]
+}
