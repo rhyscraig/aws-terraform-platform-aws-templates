@@ -9,3 +9,11 @@ variable "landing_zone_manifest_path" {
   type        = string
   default     = "${path.module}/landing_zone_manifest.json"
 }
+
+variable "default_tags" {
+  type = map(string)
+  default = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+}
