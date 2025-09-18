@@ -1,0 +1,379 @@
+
+--- FILE: main.tf ---
+
+################################################################################
+# AVM Platform Orchestrator
+# This file calls all the foundational modules for the platform.
+################################################################################
+
+module "control_tower" {
+  source = "./terraform/control_tower"
+
+  # Pass root variables down to the module
+  region       = var.region
+  default_tags = var.default_tags
+}
+
+# Add other modules for identity, networking, etc. here as they are developed.
+# module "networking" { ... }
+# module "identity" { ... }
+
+--- FILE: README.md ---
+
+# AVM Platform Infrastructure
+
+## Overview
+This repository contains the **foundational AWS infrastructure** for AVM. It includes core networking, IAM, and shared services required to deploy accounts and workloads.  
+
+---
+
+## Contents
+- **VPCs, Subnets, and Networking**  
+  - Core VPC definitions, route tables, NAT gateways.
+- **IAM Roles & Policies**  
+  - Roles for inter-service communication.
+- **Shared Services**  
+  - Logging, monitoring, and centralized resources.
+
+---
+
+## Inputs
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `region` | AWS region to deploy core infra | `eu-west-1` |
+| `vpc_cidr` | CIDR block for the VPC | `10.0.0.0/16` |
+| `log_bucket_name` | Centralized logging bucket | `avm-central-logs` |
+
+---
+
+## Outputs
+| Output | Description |
+|--------|-------------|
+| `vpc_id` | ID of the core VPC |
+| `subnet_ids` | List of subnet IDs |
+| `iam_role_arns` | List of IAM roles for AVM repos |
+
+---
+
+## Terraform AFT & Control Tower
+- **Control Tower configuration** can live in this repo because this is the **foundational AWS infrastructure layer**.
+- Define your **landing zone or guardrails via Terraform `aws_controltower_landing_zone` or `aws_controltower_control` resources** here.
+- **AFT deployment**: define account factory pipelines to provision new accounts from this platform.
+
+---
+
+## Deployment Order
+1. Ensure `avm-bootstrap` has been applied (for OIDC and backend).
+2. Deploy foundational infrastructure before any accounts or guardrails.
+
+---
+
+## Notes
+- This repo is foundational; other repos may depend on its outputs.
+- No CodePipeline or CodeBuild required; GitHub Actions is used.
+
+
+--- FILE: variables.tf ---
+
+# Default AWS region
+variable "region" {
+  description = "AWS region for all platform resources"
+  type        = string
+  default     = "us-east-1"
+}
+
+# Default tags applied to all resources
+variable "default_tags" {
+  description = "Default tags for all resources"
+  type        = map(string)
+  default = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+}
+
+--- FILE: backend.tf ---
+
+# This is the single backend configuration for the entire avm-platform.
+terraform {
+  backend "s3" {
+    bucket         = "bt-terraform-remote-state-us-east-1"
+    key            = "avm-platform/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-state-lock"
+    encrypt        = true
+  }
+}
+
+--- FILE: snapshot.py ---
+
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import pathspec
+
+# CONFIG
+REPO_ROOT = Path(__file__).parent.resolve()
+SNAPSHOT_FILE = REPO_ROOT / "repo_snapshot.txt"
+INCLUDE_EXTENSIONS = {".py", ".tf", ".md", ".yaml", ".yml"}  # adjust if needed
+EXCLUDE_FOLDERS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+}
+
+def load_gitignore(repo_root: Path):
+    gitignore_path = repo_root / ".gitignore"
+    if not gitignore_path.exists():
+        return pathspec.PathSpec.from_lines("gitwildmatch", [])
+    with gitignore_path.open() as f:
+        return pathspec.PathSpec.from_lines("gitwildmatch", f)
+
+def should_include(file_path: Path, spec):
+    # Exclude whole directories like .git
+    if any(part in EXCLUDE_FOLDERS for part in file_path.parts):
+        return False
+    # Only allow certain extensions
+    if file_path.suffix not in INCLUDE_EXTENSIONS:
+        return False
+    # Check against .gitignore
+    rel_path = file_path.relative_to(REPO_ROOT)
+    return not spec.match_file(str(rel_path))
+
+def main():
+    spec = load_gitignore(REPO_ROOT)
+
+    if SNAPSHOT_FILE.exists():
+        SNAPSHOT_FILE.unlink()
+
+    with SNAPSHOT_FILE.open("w", encoding="utf-8") as out_file:
+        for file_path in REPO_ROOT.rglob("*"):
+            if file_path.is_file() and should_include(file_path, spec):
+                rel_path = file_path.relative_to(REPO_ROOT)
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    # Skip binary or invalid text files
+                    continue
+                out_file.write(f"\n--- FILE: {rel_path} ---\n\n")
+                out_file.write(content)
+                out_file.write("\n")
+
+    print(f"Snapshot created: {SNAPSHOT_FILE}")
+
+if __name__ == "__main__":
+    main()
+
+
+--- FILE: .github/workflows/deploy.yaml ---
+
+name: Terraform CI/CD for Platform
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '.github/workflows/deploy.yaml'
+  push:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '.github/workflows/deploy.yaml'
+
+jobs:
+  validate:
+    name: 'Validate and Scan'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+
+      - name: 'Set up Terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: 'Terraform Format Check'
+        run: terraform fmt -check -recursive
+
+      - name: 'Initialize Terraform (no backend)'
+        run: terraform init -backend=false
+
+      - name: 'Validate Terraform Configuration'
+        run: terraform validate -no-color
+      
+      - name: 'Run Checkov Scanner'
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+
+  plan:
+    name: 'Terraform Plan'
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+
+      - name: 'Set up Terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: 'Configure AWS Credentials'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: 'Initialize Terraform'
+        run: terraform init
+
+      - name: 'Generate Terraform Plan'
+        run: terraform plan -no-color -input=false -out=tfplan
+
+      - name: 'Upload Plan Artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+
+  approval:
+    name: 'Wait for Approval'
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - name: 'Manual approval is required to deploy to production.'
+        run: echo "Approve this job to proceed with the apply step."
+
+  apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    needs: approval
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+
+      - name: 'Set up Terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: 'Configure AWS Credentials'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: 'Initialize Terraform'
+        run: terraform init
+
+      - name: 'Download Plan Artifact'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+
+      - name: 'Apply Terraform Plan'
+        run: terraform apply -auto-approve "tfplan"
+
+--- FILE: terraform/control_tower/outputs.tf ---
+
+output "landing_zone_id" {
+  description = "The Control Tower Landing Zone ID"
+  value       = aws_controltower_landing_zone.avm_landing_zone.id
+}
+
+output "landing_zone_arn" {
+  description = "The ARN of the Control Tower landing zone"
+  value       = aws_controltower_landing_zone.avm_landing_zone.arn
+}
+
+
+--- FILE: terraform/control_tower/main.tf ---
+
+resource "aws_controltower_landing_zone" "avm_landing_zone" {
+  manifest_json = file("${path.module}/landing_zone_manifest.json")
+  version       = "3.2"
+}
+
+
+--- FILE: terraform/control_tower/versions.tf ---
+
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+
+--- FILE: terraform/control_tower/README.md ---
+
+# AVM Platform - Control Tower
+
+This folder contains Terraform definitions for deploying AWS Control Tower landing zones.
+
+## Files
+
+- `main.tf` - Defines the landing zone.
+- `variables.tf` - Input variables for region, manifest path, etc.
+- `outputs.tf` - Outputs for landing zone ARN/ID.
+- `landing_zone_manifest.json` - JSON manifest for OUs, accounts, and regions.
+- `backend.tf` - S3/DynamoDB backend for Terraform state.
+
+## Usage
+
+```bash
+terraform init
+terraform plan
+terraform apply
+
+
+--- FILE: terraform/control_tower/variables.tf ---
+
+variable "region" {
+  description = "Region to deploy Control Tower landing zone"
+  type        = string
+  default     = "eu-west-1"
+}
+
+variable "landing_zone_manifest_path" {
+  description = "Path to the landing zone manifest JSON file"
+  type        = string
+  default     = "${path.module}/landing_zone_manifest.json"
+}
+
+variable "default_tags" {
+  type = map(string)
+  default = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+}
+
