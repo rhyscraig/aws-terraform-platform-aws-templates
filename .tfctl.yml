@@ -1,0 +1,17 @@
+version: 1
+checkov:
+  enabled: true
+  soft_fail: false
+
+backend_convention:
+  bucket_pattern: "bt-terraform-remote-state-{region}"
+  kms_key_pattern: "alias/tfctl-state-key"
+
+environments:
+  prod:
+    account: "235494790978" # Management Account
+    region: "us-east-1"
+    role: "TerraformExecutionRole"
+    auth_partner: "awsctl"
+    backend:
+      type: "s3"

@@ -1,0 +1,22 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  # Maintain GitHub Actions (The Pipeline)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Maintain Terraform Providers (The Infrastructure)
+  - package-ecosystem: "terraform"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      terraform:
+        patterns:
+          - "*"

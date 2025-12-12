@@ -1,123 +1,34 @@
-name: Terraform CI/CD for Platform
+name: Deploy Platform (Control Tower)
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '.github/workflows/deploy.yaml'
   push:
     branches: [ main ]
-    paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '.github/workflows/deploy.yaml'
+  pull_request:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
 
 jobs:
-  validate:
-    name: 'Validate and Scan'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: 'Checkout Repository'
-        uses: actions/checkout@v4
-
-      - name: 'Set up Terraform'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.0"
-
-      - name: 'Terraform Format Check'
-        run: terraform fmt -check -recursive
-
-      - name: 'Initialize Terraform (no backend)'
-        run: terraform init -backend=false
-
-      - name: 'Validate Terraform Configuration'
-        run: terraform validate -no-color
-      
-      - name: 'Run Checkov Scanner'
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: .
+  lint:
+    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-static-analysis.yaml@v1.0.4
 
   plan:
-    name: 'Terraform Plan'
-    runs-on: ubuntu-latest
-    needs: validate
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: 'Checkout Repository'
-        uses: actions/checkout@v4
-
-      - name: 'Set up Terraform'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.0"
-
-      - name: 'Configure AWS Credentials'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: 'Initialize Terraform'
-        run: terraform init
-
-      - name: 'Generate Terraform Plan'
-        run: terraform plan -no-color -input=false -out=tfplan
-
-      - name: 'Upload Plan Artifact'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: tfplan
-
-  approval:
-    name: 'Wait for Approval'
-    runs-on: ubuntu-latest
-    needs: plan
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production
-    steps:
-      - name: 'Manual approval is required to deploy to production.'
-        run: echo "Approve this job to proceed with the apply step."
+    needs: lint
+    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-tf-plan.yaml@v1.0.4
+    with:
+      env_name: "prod"
+    secrets:
+      OIDC_ROLE_ARN: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
 
   apply:
-    name: 'Terraform Apply'
-    runs-on: ubuntu-latest
-    needs: approval
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: 'Checkout Repository'
-        uses: actions/checkout@v4
-
-      - name: 'Set up Terraform'
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.0"
-
-      - name: 'Configure AWS Credentials'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: 'Initialize Terraform'
-        run: terraform init
-
-      - name: 'Download Plan Artifact'
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-
-      - name: 'Apply Terraform Plan'
-        run: terraform apply -auto-approve "tfplan"
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-tf-apply.yaml@v1.0.4
+    with:
+      env_name: "prod"
+    secrets:
+      OIDC_ROLE_ARN: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
