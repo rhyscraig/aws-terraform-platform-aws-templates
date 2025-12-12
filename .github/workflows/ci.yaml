@@ -1,0 +1,26 @@
+name: Workflow Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Run Actionlint
+        uses: reviewdog/action-actionlint@v1
+        with:
+          fail_on_error: true
+          # SC2086: Ignore unquoted variable expansion warnings common in Actions
+          actionlint_flags: "-ignore 'SC2086'"

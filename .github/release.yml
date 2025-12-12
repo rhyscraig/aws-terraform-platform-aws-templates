@@ -1,0 +1,23 @@
+# Configuration for auto-generated release notes
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+      - bot
+  categories:
+    - title: '🚨 Security Updates'
+      labels:
+        - security
+        - secops
+    - title: '🚀 New Features'
+      labels:
+        - feature
+        - enhancement
+    - title: '🐛 Bug Fixes'
+      labels:
+        - fix
+        - bug
+    - title: '📚 Documentation'
+      labels:
+        - documentation
+        - docs
