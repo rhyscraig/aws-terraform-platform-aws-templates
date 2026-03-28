@@ -12,11 +12,11 @@ permissions:
 
 jobs:
   lint:
-    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-static-analysis.yaml@v1.0.5
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-static-analysis.yaml@v0.0.2
 
   plan:
     needs: lint
-    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-tf-plan.yaml@v1.0.5
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-tf-plan.yaml@main
     with:
       env_name: "prod"
     secrets:
@@ -26,7 +26,7 @@ jobs:
   apply:
     needs: plan
     if: github.ref == 'refs/heads/main'
-    uses: BT-IT-Infrastructure-CloudOps/aws-workflows/.github/workflows/reusable-tf-apply.yaml@v1.0.5
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-tf-apply.yaml@main
     with:
       env_name: "prod"
     secrets:

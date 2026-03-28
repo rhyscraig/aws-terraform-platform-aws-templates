@@ -1,4 +1,4 @@
-# .github/dependabot.yml
+# .github/dependabot.yaml
 version: 2
 updates:
   # Maintain GitHub Actions (The Pipeline)

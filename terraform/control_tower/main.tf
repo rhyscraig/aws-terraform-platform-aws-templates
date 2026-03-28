@@ -1,4 +1,5 @@
 resource "aws_controltower_landing_zone" "avm_landing_zone" {
-  manifest_json = file("${path.module}/landing_zone_manifest.json")
+  # [FIX] Construct the path here
+  manifest_json = file("${path.module}/${var.landing_zone_manifest_name}")
   version       = "3.2"
 }

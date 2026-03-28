@@ -115,7 +115,7 @@ import pathspec
 # CONFIG
 REPO_ROOT = Path(__file__).parent.resolve()
 SNAPSHOT_FILE = REPO_ROOT / "repo_snapshot.txt"
-INCLUDE_EXTENSIONS = {".py", ".tf", ".md", ".yaml", ".yml"}  # adjust if needed
+INCLUDE_EXTENSIONS = {".py", ".tf", ".md", ".yaml", ".yaml"}  # adjust if needed
 EXCLUDE_FOLDERS = {
     ".git",
     ".venv",

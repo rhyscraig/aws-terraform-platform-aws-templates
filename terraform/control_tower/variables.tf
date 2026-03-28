@@ -4,10 +4,11 @@ variable "region" {
   default     = "eu-west-1"
 }
 
-variable "landing_zone_manifest_path" {
-  description = "Path to the landing zone manifest JSON file"
+variable "landing_zone_manifest_name" {
+  description = "Name of the landing zone manifest JSON file (must be in same module)"
   type        = string
-  default     = "${path.module}/landing_zone_manifest.json"
+  # [FIX] Removed path.module interpolation
+  default = "landing_zone_manifest.json"
 }
 
 variable "default_tags" {
