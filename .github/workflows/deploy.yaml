@@ -1,34 +1,72 @@
-name: Deploy Platform (Control Tower)
+name: "Defense Grade Deploy"
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
+    branches: [ "main" ]
 
 permissions:
   id-token: write
   contents: read
-  pull-requests: write
+  actions: read
 
 jobs:
-  lint:
-    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-static-analysis.yaml@v0.0.2
+  # GATE 1: Security Scan
+  security-scan:
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-secret-scan.yaml@v1.0.0
 
+  # GATE 2: Code Quality & Policy (TFCTL Doctor)
+  code-quality:
+    needs: [security-scan]
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-static-analysis.yml@v1.0.0
+    with:
+      working-directory: "."
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+
+  # STEP 3: Plan
   plan:
-    needs: lint
-    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-tf-plan.yaml@main
+    needs: [code-quality]
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-terraform-plan.yml@v1.0.0
     with:
-      env_name: "prod"
+      org: "hcp"
+      env: "prd"
+      working-directory: "."
     secrets:
-      OIDC_ROLE_ARN: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
       GH_PAT: ${{ secrets.GH_PAT }}
+      SEED_ROLE_ARN: ${{ secrets.SEED_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      KMS_KEY_ID: ${{ secrets.KMS_KEY_ID }}
+      TF_LOGS_BUCKET: ${{ secrets.TF_LOGS_BUCKET }}
+      PLAN_PASSPHRASE: ${{ secrets.PLAN_PASSPHRASE }}
 
-  apply:
-    needs: plan
-    if: github.ref == 'refs/heads/main'
-    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-tf-apply.yaml@main
+  # STEP 4: Supply Chain Security (SLSA)
+  # Signs the 'plan' to ensure nobody tampered with it between Plan and Apply
+  provenance:
+    needs: [plan]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-slsa-provenance.yaml@v1.0.0
     with:
-      env_name: "prod"
+      artifact-name: "tfplan-prd"
+      artifact-sha256: "${{ needs.plan.outputs.plan_sha256 }}"
+
+  # STEP 5: Apply
+  apply:
+    needs: [provenance]
+    if: github.ref == 'refs/heads/main'
+    uses: rhyscraig/aws-terraform-platform-aws-workflows/.github/workflows/reusable-terraform-apply.yml@v1.0.0
+    with:
+      org: "hcp"
+      env: "prd"
+      working-directory: "."
     secrets:
-      OIDC_ROLE_ARN: ${{ secrets.AWS_AVM_OIDC_ROLE_ARN }}
       GH_PAT: ${{ secrets.GH_PAT }}
+      SEED_ROLE_ARN: ${{ secrets.SEED_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      KMS_KEY_ID: ${{ secrets.KMS_KEY_ID }}
+      TF_LOGS_BUCKET: ${{ secrets.TF_LOGS_BUCKET }}
+      PLAN_PASSPHRASE: ${{ secrets.PLAN_PASSPHRASE }}
